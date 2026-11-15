@@ -40,8 +40,8 @@ html {
   scroll-padding-top: env(safe-area-inset-top, 0px);
 }
 
-/* Deep space: near-black navy with soft nebula glows. Stars, falling stars
-   and the fire trail are drawn on the canvases in Dashboard.jsx. */
+/* Deep space: near-black navy with soft nebula glows. Stars and falling
+   stars are drawn on the canvas in Dashboard.jsx. */
 body {
   margin: 0;
   background:
@@ -124,10 +124,6 @@ body::before {
   }
   .fx-stars {
     z-index: 0;
-  }
-  /* Above the page so the cursor trail shows over panels too (click-through). */
-  .fx-fire {
-    z-index: 100;
   }
 
   .wrap {
@@ -412,9 +408,6 @@ body::before {
     }
     .glass.top .bar > * {
       flex: none;
-    }
-    .msgs {
-      max-height: min(45vh, 420px);
     }
   }
 
@@ -830,7 +823,10 @@ body::before {
     display: flex;
     flex-direction: column;
     flex: 1;
-    min-height: 560px;
+    align-self: start;
+    height: var(--chat-panel-height, min(72vh, 560px));
+    min-height: 0;
+    max-height: none;
   }
   .msgs {
     flex: 1;
@@ -841,6 +837,14 @@ body::before {
     display: grid;
     gap: 16px;
     align-content: start;
+  }
+  @media (max-width: 640px) {
+    .chat {
+      height: var(--chat-panel-height, min(68vh, 480px));
+    }
+    .msgs {
+      max-height: min(45vh, 420px);
+    }
   }
   .m {
     display: flex;

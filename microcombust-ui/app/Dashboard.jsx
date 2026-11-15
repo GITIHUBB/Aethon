@@ -223,9 +223,19 @@ const pct = (c) => (c == null ? null : Math.round((c <= 1 ? c * 100 : c)));
 /* ------------------------------------------------------------------ */
 /* Small UI pieces                                                     */
 /* ------------------------------------------------------------------ */
-function Panel({ title, icon: Icon, right, children, className = '', a = '#22d3ee', b = '#a78bfa', iconColor }) {
+function Panel({
+  title,
+  icon: Icon,
+  right,
+  children,
+  className = '',
+  a = '#22d3ee',
+  b = '#a78bfa',
+  iconColor,
+  panelRef,
+}) {
   return (
-    <section style={{ '--a': a, '--b': b }} className={`glass ${className}`}>
+    <section ref={panelRef} style={{ '--a': a, '--b': b }} className={`glass ${className}`}>
       <header className="ph">
         <h2>
           {Icon && (
@@ -242,13 +252,11 @@ function Panel({ title, icon: Icon, right, children, className = '', a = '#22d3e
   );
 }
 
-function Slider({ id, label, unit, value, min, max, step = 1, digits = 0, c1, c2, onChange, onSlide }) {
+function Slider({ id, label, unit, value, min, max, step = 1, digits = 0, c1, c2, onChange }) {
   const fill = ((value - min) / (max - min)) * 100;
   const handleChange = (e) => {
     const next = Number(e.target.value);
     onChange(next);
-    // Lets the fire backdrop flare and shift colour as the value rises.
-    onSlide?.((next - min) / (max - min));
   };
   return (
     <div>
@@ -808,12 +816,12 @@ export default function Dashboard() {
   const [openSource, setOpenSource] = useState(null);
   const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const experimentControlsRef = useRef(null);
+  const chatPanelRef = useRef(null);
   // Header gains its glass bar once the page has scrolled.
   const [scrolled, setScrolled] = useState(false);
-  // Backdrop canvases + the handle the effect below exposes (slider flare, gravity).
+  // Animated starfield backdrop.
   const starsRef = useRef(null);
-  const fireRef = useRef(null);
-  const fxRef = useRef(null);
   // Automated simulation mode
   const [simulationMode, setSimulationMode] = useState(false);
   const [scenarioLabel, setScenarioLabel] = useState(null);
@@ -827,6 +835,26 @@ export default function Dashboard() {
 
   const params = { oxygen, pressure, airflow, gravity, fuel };
   const paramsKey = `${oxygen}|${pressure}|${airflow}|${gravity}|${fuel}`;
+
+  useEffect(() => {
+    const controlsPanel = experimentControlsRef.current;
+    const chatPanel = chatPanelRef.current;
+    if (!controlsPanel || !chatPanel) return undefined;
+
+    const syncChatHeight = () => {
+      chatPanel.style.setProperty('--chat-panel-height', `${controlsPanel.getBoundingClientRect().height}px`);
+    };
+    const observer = new ResizeObserver(syncChatHeight);
+    observer.observe(controlsPanel);
+    window.addEventListener('resize', syncChatHeight);
+    syncChatHeight();
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', syncChatHeight);
+      chatPanel.style.removeProperty('--chat-panel-height');
+    };
+  }, []);
 
   // Any parameter change invalidates the last backend ranking. Done while
   // rendering rather than in an effect: same outcome, without the extra
@@ -915,20 +943,16 @@ export default function Dashboard() {
   }, [messages, thinking]);
 
   /* ---------------------------------------------------------------- */
-  /* Space backdrop: layered stars, falling stars + fire trail on the  */
-  /* pointer. The rAF loop and every listener are removed on cleanup.  */
+  /* Space backdrop: twinkling stars and independent shooting stars.  */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
     const starCanvas = starsRef.current;
-    const fireCanvas = fireRef.current;
-    if (!starCanvas || !fireCanvas) return undefined;
-    const sx = starCanvas.getContext('2d');
-    const fc = fireCanvas.getContext('2d');
-    if (!sx || !fc) return undefined;
+    if (!starCanvas) return undefined;
+    const context = starCanvas.getContext('2d');
+    if (!context) return undefined;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const STAR_COLORS = ['#ffffff', '#cfe3ff', '#ffe7c7', '#e6d4ff', '#bfe9ff'];
-    const MAX_PARTICLES = 1800;
     const MAX_SHOOTERS = 4;
     const TAU = Math.PI * 2;
 
@@ -939,29 +963,12 @@ export default function Dashboard() {
     let raf = 0;
     let last = performance.now();
 
-    // Mutable animation state. `grav` and `slide` are driven from React.
-    const A = {
-      grav: 0,
-      mx: W / 2, my: H / 2, // pointer
-      ex: W / 2, ey: H / 2, // eased follower (the fire tip)
-      hue: 14, th: 14,      // current / target flame hue
-      boost: 0, drag: false, speed: 0,
-      pts: [],
-      slide(n) {
-        A.boost = 1;
-        A.th = 6 + n * 14;
-      },
-    };
-
     const resize = () => {
       W = window.innerWidth;
       H = window.innerHeight;
-      for (const c of [starCanvas, fireCanvas]) {
-        c.width = Math.round(W * dpr);
-        c.height = Math.round(H * dpr);
-      }
-      sx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      fc.setTransform(dpr, 0, 0, dpr, 0, 0);
+      starCanvas.width = Math.round(W * dpr);
+      starCanvas.height = Math.round(H * dpr);
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
       // Three depth layers: many small far stars, fewer big near ones.
       stars = Array.from({ length: Math.round((W * H) / 4200) }, () => {
         const layer = Math.random();
@@ -993,52 +1000,27 @@ export default function Dashboard() {
       });
     };
 
-    const onMove = (e) => {
-      A.mx = e.clientX;
-      A.my = e.clientY;
-    };
-    const onDown = (e) => {
-      if (e.target instanceof HTMLInputElement && e.target.type === 'range') A.drag = true;
-    };
-    const onUp = () => {
-      A.drag = false;
-    };
-
     const frame = (t) => {
       const dt = Math.min((t - last) / 1000, 0.05);
       last = t;
 
-      /* stars: twinkle, depth parallax, and a glow near the pointer */
-      sx.clearRect(0, 0, W, H);
-      const ox = (A.mx - W / 2) / W;
-      const oy = (A.my - H / 2) / H;
+      context.clearRect(0, 0, W, H);
       for (const s of stars) {
         s.p += dt * s.s;
-        let a = 0.3 + 0.7 * Math.abs(Math.sin(s.p));
-        let r = s.r;
-        const x = (s.x - ox * s.d * 60 + W) % W;
-        const y = (s.y - oy * s.d * 60 + H) % H;
-        const dx = x - A.mx;
-        const dy = y - A.my;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < 22500) {
-          const k = 1 - Math.sqrt(d2) / 150;
-          a = Math.min(1, a + k * 0.6);
-          r += k * 1.4;
-        }
-        sx.globalAlpha = a;
-        sx.fillStyle = s.c;
-        sx.beginPath();
-        sx.arc(x, y, r, 0, TAU);
-        sx.fill();
+        const alpha = 0.3 + 0.7 * Math.abs(Math.sin(s.p));
+        context.globalAlpha = alpha;
+        context.fillStyle = s.c;
+        context.beginPath();
+        context.arc(s.x, s.y, s.r, 0, TAU);
+        context.fill();
         if (s.d > 0.8) {
-          sx.globalAlpha = a * 0.22;
-          sx.beginPath();
-          sx.arc(x, y, r * 3, 0, TAU);
-          sx.fill();
+          context.globalAlpha = alpha * 0.22;
+          context.beginPath();
+          context.arc(s.x, s.y, s.r * 3, 0, TAU);
+          context.fill();
         }
       }
-      sx.globalAlpha = 1;
+      context.globalAlpha = 1;
 
       /* falling stars: several can streak across at once */
       if (shooters.length < MAX_SHOOTERS && Math.random() < dt * 0.7) spawnShooter();
@@ -1046,125 +1028,39 @@ export default function Dashboard() {
         const o = shooters[i];
         const tx = o.x - (o.vx / o.sp) * o.len;
         const ty = o.y - (o.vy / o.sp) * o.len;
-        const g = sx.createLinearGradient(o.x, o.y, tx, ty);
+        const g = context.createLinearGradient(o.x, o.y, tx, ty);
         g.addColorStop(0, `rgba(255,255,255,${o.l})`);
         g.addColorStop(0.35, `rgba(191,233,255,${o.l * 0.45})`);
         g.addColorStop(1, 'rgba(191,233,255,0)');
-        sx.strokeStyle = g;
-        sx.lineWidth = 1.8;
-        sx.lineCap = 'round';
-        sx.beginPath();
-        sx.moveTo(o.x, o.y);
-        sx.lineTo(tx, ty);
-        sx.stroke();
-        sx.fillStyle = `rgba(255,255,255,${o.l})`;
-        sx.beginPath();
-        sx.arc(o.x, o.y, 1.8, 0, TAU);
-        sx.fill();
+        context.strokeStyle = g;
+        context.lineWidth = 1.8;
+        context.lineCap = 'round';
+        context.beginPath();
+        context.moveTo(o.x, o.y);
+        context.lineTo(tx, ty);
+        context.stroke();
+        context.fillStyle = `rgba(255,255,255,${o.l})`;
+        context.beginPath();
+        context.arc(o.x, o.y, 1.8, 0, TAU);
+        context.fill();
         o.x += o.vx * dt;
         o.y += o.vy * dt;
         o.l -= dt * 0.55;
         if (o.l <= 0 || o.y > H + 40 || o.x < -200 || o.x > W + 200) shooters.splice(i, 1);
       }
 
-      /* fire trail: eased follower, particles emitted along its whole path */
-      const pex = A.ex;
-      const pey = A.ey;
-      const k1 = 1 - Math.exp(-dt * 12);
-      A.ex += (A.mx - A.ex) * k1;
-      A.ey += (A.my - A.ey) * k1;
-      const segX = A.ex - pex;
-      const segY = A.ey - pey;
-      const dist = Math.hypot(segX, segY);
-      A.speed += (dist / Math.max(dt, 0.001) / 1600 - A.speed) * (1 - Math.exp(-dt * 8));
-      A.hue += (A.th - A.hue) * (1 - Math.exp(-dt * 3));
-      A.boost *= Math.exp(-dt * 2.2);
-
-      const power = Math.min(1, A.speed * 1.4) * 0.6 + (A.drag ? 1 : 0) + A.boost;
-      const buoy = [0.6, 0.8, 1][A.grav === 0 ? 0 : A.grav < 1 ? 1 : 2];
-      const steps = Math.min(16, Math.ceil(dist / 4) + (A.drag || A.boost > 0.05 ? 3 : 0));
-      for (let i = 0; i < steps && A.pts.length < MAX_PARTICLES; i++) {
-        const f = steps > 1 ? i / (steps - 1) : 1;
-        const ang = Math.random() * TAU;
-        const rad = Math.random() * 3;
-        A.pts.push({
-          x: pex + segX * f + Math.cos(ang) * rad,
-          y: pey + segY * f + Math.sin(ang) * rad,
-          vx: (Math.random() - 0.5) * 30 - (segX / Math.max(dt, 0.001)) * 0.04,
-          vy: -(55 + Math.random() * 80) * buoy,
-          l: 1,
-          dl: 1.1 + Math.random() * 0.8,
-          s: 7 + Math.random() * 8 + power * 4,
-        });
-        if (Math.random() < 0.2) {
-          A.pts.push({
-            x: pex + segX * f,
-            y: pey + segY * f,
-            vx: (Math.random() - 0.5) * 80,
-            vy: -(110 + Math.random() * 130),
-            l: 1,
-            dl: 1.5 + Math.random(),
-            s: 1.8,
-          });
-        }
-      }
-
-      fc.clearRect(0, 0, W, H);
-      fc.globalCompositeOperation = 'lighter';
-      for (let i = A.pts.length - 1; i >= 0; i--) {
-        const p = A.pts[i];
-        p.l -= p.dl * dt;
-        if (p.l <= 0) {
-          A.pts.splice(i, 1);
-          continue;
-        }
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.vx *= 0.96;
-        p.vy *= 0.99;
-        p.vx += Math.sin(t / 160 + p.y * 0.05 + p.s) * 70 * dt;
-        const r = p.s * (0.3 + p.l * 0.7);
-        const h = A.hue + p.l * p.l * 34;
-        const L = 40 + p.l * p.l * 48;
-        const al = Math.min(1, p.l * 1.6) * 0.65;
-        const g = fc.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 1.3);
-        g.addColorStop(0, `hsla(${h},100%,${L}%,${al})`);
-        g.addColorStop(0.5, `hsla(${h - 8},100%,${L - 14}%,${al * 0.6})`);
-        g.addColorStop(1, `hsla(${h - 14},100%,30%,0)`);
-        fc.fillStyle = g;
-        fc.beginPath();
-        fc.ellipse(p.x, p.y, r * 0.75, r * 1.3, 0, 0, TAU);
-        fc.fill();
-      }
-      fc.globalCompositeOperation = 'source-over';
-
       raf = requestAnimationFrame(frame);
     };
 
-    fxRef.current = A;
     resize();
     window.addEventListener('resize', resize);
-    window.addEventListener('pointermove', onMove, { passive: true });
-    window.addEventListener('pointerdown', onDown);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
     raf = requestAnimationFrame(frame);
 
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-      fxRef.current = null;
     };
   }, []);
-
-  // Fire buoyancy follows the selected gravity mode ('0g' -> 0, '0.16g' -> 0.16 ...).
-  useEffect(() => {
-    if (fxRef.current) fxRef.current.grav = parseFloat(gravity);
-  }, [gravity]);
 
   // Sticky header: show the glass bar behind it once the page scrolls.
   useEffect(() => {
@@ -1208,9 +1104,6 @@ export default function Dashboard() {
       }
     };
   }, [simulationMode]);
-
-  // Slider -> backdrop: flare the flame and shift its colour.
-  const slide = (n) => fxRef.current?.slide(n);
 
   // Combustion Precautions & Preventive Measures Alert System
   // Connects slider state directly to dynamic hazard warnings.
@@ -1436,9 +1329,8 @@ export default function Dashboard() {
 
   return (
     <div className="aethon">
-      {/* Backdrop: twinkling stars, then fire particles above them */}
+      {/* Backdrop: twinkling and falling stars */}
       <canvas ref={starsRef} id="stars" className="fx fx-stars" aria-hidden="true" />
-      <canvas ref={fireRef} id="fire" className="fx fx-fire" aria-hidden="true" />
 
       {/* Sticky header. The bar behind the pill is a sibling layer (not an
           ancestor) so the pill's own backdrop blur keeps working. */}
@@ -1566,7 +1458,13 @@ export default function Dashboard() {
         <main className="layout">
           {/* Left column */}
           <div className="left">
-            <Panel title="Experiment controls" icon={Wind} a="#22d3ee" b="#a78bfa">
+            <Panel
+              title="Experiment controls"
+              icon={Wind}
+              a="#22d3ee"
+              b="#a78bfa"
+              panelRef={experimentControlsRef}
+            >
               <div className="pb">
                 {/* Combustion Precautions & Preventive Measures Alert Box */}
                 {combustionAlert.active && (
@@ -1581,9 +1479,9 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
-                <Slider id="o2" label="Oxygen concentration" unit="%" value={oxygen} min={15} max={35} c1="#38BDF8" c2="#F97316" onChange={setOxygen} onSlide={slide} />
-                <Slider id="p" label="Ambient pressure" unit="kPa" value={pressure} min={50} max={150} step={0.1} digits={1} c1="#a78bfa" c2="#f472b6" onChange={setPressure} onSlide={slide} />
-                <Slider id="v" label="Forced airflow velocity" unit="cm/s" value={airflow} min={0} max={50} c1="#fbbf24" c2="#fb923c" onChange={setAirflow} onSlide={slide} />
+                <Slider id="o2" label="Oxygen concentration" unit="%" value={oxygen} min={15} max={35} c1="#38BDF8" c2="#F97316" onChange={setOxygen} />
+                <Slider id="p" label="Ambient pressure" unit="kPa" value={pressure} min={50} max={150} step={0.1} digits={1} c1="#a78bfa" c2="#f472b6" onChange={setPressure} />
+                <Slider id="v" label="Forced airflow velocity" unit="cm/s" value={airflow} min={0} max={50} c1="#fbbf24" c2="#fb923c" onChange={setAirflow} />
 
                 <div>
                   <label htmlFor="fuel" className="lbl mb-2 block">
@@ -1730,6 +1628,7 @@ export default function Dashboard() {
             b="#f472b6"
             iconColor="#a78bfa"
             className="chat right"
+            panelRef={chatPanelRef}
             right={<span className="tag">Searching {gravity} records</span>}
           >
             <div ref={messagesContainerRef} className="msgs" aria-live="polite">
