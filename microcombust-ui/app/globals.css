@@ -5,7 +5,7 @@
    ========================================================================== */
 :root {
   color-scheme: dark;
-  --bg: #0B0F19;
+  --bg: #02030a;
   --t: #eef0ff;
   --m: #8d94bd;
   --cy: #38BDF8;
@@ -40,10 +40,15 @@ html {
   scroll-padding-top: env(safe-area-inset-top, 0px);
 }
 
-/* Deep space canvas: #0B0F19 base with floating animated stars + nebula glows. */
+/* Deep space: near-black navy with soft nebula glows. Stars, falling stars
+   and the fire trail are drawn on the canvases in Dashboard.jsx. */
 body {
   margin: 0;
-  background: #0B0F19;
+  background:
+    radial-gradient(ellipse at 15% 0%, #121842 0%, transparent 55%),
+    radial-gradient(ellipse at 90% 35%, #1b0d36 0%, transparent 50%),
+    linear-gradient(180deg, #02030a 0%, #050719 55%, #0a0618 100%);
+  background-attachment: fixed;
   color: var(--t);
   font: 14px/1.5 var(--sans);
   min-height: 100vh;
@@ -61,36 +66,9 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(60rem 40rem at -10% -10%, rgba(56, 189, 248, 0.15), transparent 55%),
-    radial-gradient(50rem 35rem at 110% 15%, rgba(249, 115, 22, 0.1), transparent 55%),
-    radial-gradient(45rem 30rem at 50% 110%, rgba(167, 139, 250, 0.12), transparent 55%);
-}
-
-/* Animated starfield layer */
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image: radial-gradient(2px 2px at 20px 30px, #eef0ff, transparent),
-    radial-gradient(2px 2px at 40px 70px, #cfe3ff, transparent),
-    radial-gradient(1px 1px at 90px 40px, #fff, transparent),
-    radial-gradient(2px 2px at 160px 120px, #ffe7c7, transparent),
-    radial-gradient(1.5px 1.5px at 210px 200px, #e6d4ff, transparent),
-    radial-gradient(2px 2px at 340px 80px, #fff, transparent),
-    radial-gradient(1px 1px at 420px 250px, #cfe3ff, transparent),
-    radial-gradient(2px 2px at 560px 150px, #fff, transparent),
-    radial-gradient(1px 1px at 700px 320px, #ffe7c7, transparent),
-    radial-gradient(2px 2px at 900px 100px, #e6d4ff, transparent);
-  background-repeat: repeat;
-  background-size: 1200px 800px;
-  animation: starfield-drift 80s linear infinite;
-}
-
-@keyframes starfield-drift {
-  0% { background-position: 0 0; }
-  100% { background-position: 1200px 800px; }
+    radial-gradient(34rem 24rem at 20% 25%, rgba(79, 70, 229, 0.16), transparent 70%),
+    radial-gradient(30rem 22rem at 80% 60%, rgba(168, 85, 247, 0.13), transparent 70%),
+    radial-gradient(28rem 20rem at 55% 95%, rgba(56, 189, 248, 0.1), transparent 70%);
 }
 
 ::selection {
@@ -147,8 +125,9 @@ body::after {
   .fx-stars {
     z-index: 0;
   }
+  /* Above the page so the cursor trail shows over panels too (click-through). */
   .fx-fire {
-    z-index: 1;
+    z-index: 100;
   }
 
   .wrap {

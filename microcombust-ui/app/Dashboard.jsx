@@ -915,7 +915,7 @@ export default function Dashboard() {
   }, [messages, thinking]);
 
   /* ---------------------------------------------------------------- */
-  /* Space backdrop: twinkling stars + fire particles that follow the  */
+  /* Space backdrop: layered stars, falling stars + fire trail on the  */
   /* pointer. The rAF loop and every listener are removed on cleanup.  */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
@@ -927,14 +927,15 @@ export default function Dashboard() {
     if (!sx || !fc) return undefined;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const STAR_COLORS = ['#fff', '#cfe3ff', '#ffe7c7', '#e6d4ff'];
-    const MAX_PARTICLES = 1200;
+    const STAR_COLORS = ['#ffffff', '#cfe3ff', '#ffe7c7', '#e6d4ff', '#bfe9ff'];
+    const MAX_PARTICLES = 1800;
+    const MAX_SHOOTERS = 4;
     const TAU = Math.PI * 2;
 
     let W = window.innerWidth;
     let H = window.innerHeight;
     let stars = [];
-    let shoot = null;
+    let shooters = [];
     let raf = 0;
     let last = performance.now();
 
@@ -942,9 +943,8 @@ export default function Dashboard() {
     const A = {
       grav: 0,
       mx: W / 2, my: H / 2, // pointer
-      ex: W / 2, ey: H / 2, // eased follower
-      px: W / 2, py: H / 2, // previous pointer, for speed
-      hue: 12, th: 12,      // current / target flame hue
+      ex: W / 2, ey: H / 2, // eased follower (the fire tip)
+      hue: 14, th: 14,      // current / target flame hue
       boost: 0, drag: false, speed: 0,
       pts: [],
       slide(n) {
@@ -962,15 +962,35 @@ export default function Dashboard() {
       }
       sx.setTransform(dpr, 0, 0, dpr, 0, 0);
       fc.setTransform(dpr, 0, 0, dpr, 0, 0);
-      stars = Array.from({ length: Math.round((W * H) / 5500) }, () => ({
-        x: Math.random() * W,
-        y: Math.random() * H,
-        r: Math.random() * 1.3 + 0.2,
-        p: Math.random() * 6.28,
-        s: Math.random() * 1.6 + 0.4,
-        d: Math.random() * 0.6 + 0.1,
-        c: STAR_COLORS[(Math.random() * STAR_COLORS.length) | 0],
-      }));
+      // Three depth layers: many small far stars, fewer big near ones.
+      stars = Array.from({ length: Math.round((W * H) / 4200) }, () => {
+        const layer = Math.random();
+        const d = layer < 0.6 ? 0.15 : layer < 0.9 ? 0.45 : 0.9;
+        return {
+          x: Math.random() * W,
+          y: Math.random() * H,
+          r: (Math.random() * 1.1 + 0.25) * (0.7 + d * 0.8),
+          p: Math.random() * 6.28,
+          s: Math.random() * 1.8 + 0.4,
+          d,
+          c: STAR_COLORS[(Math.random() * STAR_COLORS.length) | 0],
+        };
+      });
+    };
+
+    const spawnShooter = () => {
+      const dir = Math.random() < 0.7 ? 1 : -1;
+      const ang = 0.45 + Math.random() * 0.5;
+      const sp = 520 + Math.random() * 420;
+      shooters.push({
+        x: dir > 0 ? Math.random() * W * 0.8 : W * 0.2 + Math.random() * W * 0.8,
+        y: -20 + Math.random() * H * 0.45,
+        vx: Math.cos(ang) * sp * dir,
+        vy: Math.sin(ang) * sp,
+        sp,
+        len: 110 + Math.random() * 130,
+        l: 1,
+      });
     };
 
     const onMove = (e) => {
@@ -988,72 +1008,99 @@ export default function Dashboard() {
       const dt = Math.min((t - last) / 1000, 0.05);
       last = t;
 
-      /* stars: twinkle + slight parallax against the pointer */
+      /* stars: twinkle, depth parallax, and a glow near the pointer */
       sx.clearRect(0, 0, W, H);
       const ox = (A.mx - W / 2) / W;
       const oy = (A.my - H / 2) / H;
       for (const s of stars) {
         s.p += dt * s.s;
-        const a = 0.35 + 0.65 * Math.abs(Math.sin(s.p));
-        const x = (s.x - ox * s.d * 40 + W) % W;
-        const y = (s.y - oy * s.d * 40 + H) % H;
+        let a = 0.3 + 0.7 * Math.abs(Math.sin(s.p));
+        let r = s.r;
+        const x = (s.x - ox * s.d * 60 + W) % W;
+        const y = (s.y - oy * s.d * 60 + H) % H;
+        const dx = x - A.mx;
+        const dy = y - A.my;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < 22500) {
+          const k = 1 - Math.sqrt(d2) / 150;
+          a = Math.min(1, a + k * 0.6);
+          r += k * 1.4;
+        }
         sx.globalAlpha = a;
         sx.fillStyle = s.c;
         sx.beginPath();
-        sx.arc(x, y, s.r, 0, TAU);
+        sx.arc(x, y, r, 0, TAU);
         sx.fill();
+        if (s.d > 0.8) {
+          sx.globalAlpha = a * 0.22;
+          sx.beginPath();
+          sx.arc(x, y, r * 3, 0, TAU);
+          sx.fill();
+        }
       }
       sx.globalAlpha = 1;
 
-      /* occasional shooting star */
-      if (!shoot && Math.random() < 0.003) shoot = { x: Math.random() * W, y: Math.random() * H * 0.5, l: 1 };
-      if (shoot) {
-        const g = sx.createLinearGradient(shoot.x, shoot.y, shoot.x - 90, shoot.y - 40);
-        g.addColorStop(0, `rgba(255,255,255,${shoot.l})`);
-        g.addColorStop(1, 'transparent');
+      /* falling stars: several can streak across at once */
+      if (shooters.length < MAX_SHOOTERS && Math.random() < dt * 0.7) spawnShooter();
+      for (let i = shooters.length - 1; i >= 0; i--) {
+        const o = shooters[i];
+        const tx = o.x - (o.vx / o.sp) * o.len;
+        const ty = o.y - (o.vy / o.sp) * o.len;
+        const g = sx.createLinearGradient(o.x, o.y, tx, ty);
+        g.addColorStop(0, `rgba(255,255,255,${o.l})`);
+        g.addColorStop(0.35, `rgba(191,233,255,${o.l * 0.45})`);
+        g.addColorStop(1, 'rgba(191,233,255,0)');
         sx.strokeStyle = g;
-        sx.lineWidth = 1.6;
+        sx.lineWidth = 1.8;
+        sx.lineCap = 'round';
         sx.beginPath();
-        sx.moveTo(shoot.x, shoot.y);
-        sx.lineTo(shoot.x - 90, shoot.y - 40);
+        sx.moveTo(o.x, o.y);
+        sx.lineTo(tx, ty);
         sx.stroke();
-        shoot.x += 520 * dt;
-        shoot.y += 230 * dt;
-        shoot.l -= dt * 0.9;
-        if (shoot.l <= 0) shoot = null;
+        sx.fillStyle = `rgba(255,255,255,${o.l})`;
+        sx.beginPath();
+        sx.arc(o.x, o.y, 1.8, 0, TAU);
+        sx.fill();
+        o.x += o.vx * dt;
+        o.y += o.vy * dt;
+        o.l -= dt * 0.55;
+        if (o.l <= 0 || o.y > H + 40 || o.x < -200 || o.x > W + 200) shooters.splice(i, 1);
       }
 
-      /* smooth followers (frame-rate independent easing) */
-      const k1 = 1 - Math.exp(-dt * 5);
-      A.speed += (Math.hypot(A.mx - A.px, A.my - A.py) / Math.max(dt, 0.001) / 1600 - A.speed) * (1 - Math.exp(-dt * 8));
-      A.px = A.mx;
-      A.py = A.my;
+      /* fire trail: eased follower, particles emitted along its whole path */
+      const pex = A.ex;
+      const pey = A.ey;
+      const k1 = 1 - Math.exp(-dt * 12);
       A.ex += (A.mx - A.ex) * k1;
       A.ey += (A.my - A.ey) * k1;
+      const segX = A.ex - pex;
+      const segY = A.ey - pey;
+      const dist = Math.hypot(segX, segY);
+      A.speed += (dist / Math.max(dt, 0.001) / 1600 - A.speed) * (1 - Math.exp(-dt * 8));
       A.hue += (A.th - A.hue) * (1 - Math.exp(-dt * 3));
       A.boost *= Math.exp(-dt * 2.2);
 
-      /* fire: emit, then draw additively */
-      const power = Math.min(1, A.speed * 1.4) * 0.5 + (A.drag ? 1 : 0) + A.boost;
-      const n = Math.round(power * 9 + (Math.random() < (power * 3) % 1 ? 1 : 0));
+      const power = Math.min(1, A.speed * 1.4) * 0.6 + (A.drag ? 1 : 0) + A.boost;
       const buoy = [0.6, 0.8, 1][A.grav === 0 ? 0 : A.grav < 1 ? 1 : 2];
-      for (let i = 0; i < n && A.pts.length < MAX_PARTICLES; i++) {
+      const steps = Math.min(16, Math.ceil(dist / 4) + (A.drag || A.boost > 0.05 ? 3 : 0));
+      for (let i = 0; i < steps && A.pts.length < MAX_PARTICLES; i++) {
+        const f = steps > 1 ? i / (steps - 1) : 1;
         const ang = Math.random() * TAU;
-        const rad = Math.random() * 4;
+        const rad = Math.random() * 3;
         A.pts.push({
-          x: A.ex + Math.cos(ang) * rad,
-          y: A.ey + Math.sin(ang) * rad,
-          vx: (Math.random() - 0.5) * 28 + (A.mx - A.ex) * 0.9,
-          vy: -(70 + Math.random() * 90) * buoy,
+          x: pex + segX * f + Math.cos(ang) * rad,
+          y: pey + segY * f + Math.sin(ang) * rad,
+          vx: (Math.random() - 0.5) * 30 - (segX / Math.max(dt, 0.001)) * 0.04,
+          vy: -(55 + Math.random() * 80) * buoy,
           l: 1,
-          dl: 0.9 + Math.random() * 0.7,
-          s: 6 + Math.random() * 7 + power * 3,
+          dl: 1.1 + Math.random() * 0.8,
+          s: 7 + Math.random() * 8 + power * 4,
         });
-        if (Math.random() < 0.18) {
+        if (Math.random() < 0.2) {
           A.pts.push({
-            x: A.ex,
-            y: A.ey,
-            vx: (Math.random() - 0.5) * 70,
+            x: pex + segX * f,
+            y: pey + segY * f,
+            vx: (Math.random() - 0.5) * 80,
             vy: -(110 + Math.random() * 130),
             l: 1,
             dl: 1.5 + Math.random(),
@@ -1079,7 +1126,7 @@ export default function Dashboard() {
         const r = p.s * (0.3 + p.l * 0.7);
         const h = A.hue + p.l * p.l * 34;
         const L = 40 + p.l * p.l * 48;
-        const al = Math.min(1, p.l * 1.6) * 0.6;
+        const al = Math.min(1, p.l * 1.6) * 0.65;
         const g = fc.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 1.3);
         g.addColorStop(0, `hsla(${h},100%,${L}%,${al})`);
         g.addColorStop(0.5, `hsla(${h - 8},100%,${L - 14}%,${al * 0.6})`);
