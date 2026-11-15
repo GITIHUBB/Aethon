@@ -1768,9 +1768,9 @@ export default function Dashboard() {
                 placeholder="Ask about flame spread, extinction limits or materials"
                 aria-label="Ask the agent"
                 autoComplete="off"
-                className="field"
+                className="field composer-input"
               />
-              <button type="submit" disabled={!draft.trim() || thinking} className="send">
+              <button type="submit" disabled={!draft.trim() || thinking} className="send composer-send">
                 <Send aria-hidden />
                 Send
               </button>
