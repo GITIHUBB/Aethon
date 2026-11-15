@@ -194,4 +194,4 @@ Terrestrial Fire Suppression: Insights surfaced from microgravity aerosol dynami
 
 📄 License
 
-Developed for the NASA Space Apps Challenge 2026. Research documents indexed in papers/ belong to NASA's public Physical Sciences Informatics (PSI) repository.
+Developed for the NASA Space Apps Challenge 2026. Research documents indexed in papers/ belong to NASA's public Physical Sciences Informatics (PSI) repository,NTRS and related sources.
